@@ -1,0 +1,12 @@
+replicaCount: 1
+
+image:
+  repository: fileserver
+  tag: "latest"
+  pullPolicy: Never
+
+service:
+  type: ClusterIP
+  port: 8081
+
+existingPvc: fileserver-pvc
