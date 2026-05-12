@@ -1,0 +1,36 @@
+﻿Fileserver has been deployed as {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+=== Verify the install ===
+
+1. Port-forward to the service:
+
+   kubectl port-forward svc/{{ include "fileserver.fullname" . }} 8080:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+
+2. In a separate terminal, test a successful file read:
+
+   curl http://localhost:8080/test.txt
+
+   Expected: file contents (seeded by the init container on first start)
+
+3. Test the 404 JSON response:
+
+   curl http://localhost:8080/missing-file.txt
+
+   Expected: {"error":"file not found"}
+
+=== Check pod health ===
+
+   kubectl get pods -l app=fileserver -n {{ .Release.Namespace }}
+
+   Both readiness and liveness probes hit GET / — the pod will not
+   receive traffic until the server is accepting connections.
+
+=== Seed additional files ===
+
+   kubectl cp ./your-file.txt \
+     $(kubectl get pod -l app=fileserver -n {{ .Release.Namespace }} -o jsonpath="{.items[0].metadata.name}"):/data/your-file.txt \
+     -n {{ .Release.Namespace }}
+
+=== Roll back ===
+
+   helm rollback {{ .Release.Name }} -n {{ .Release.Namespace }}
