@@ -164,7 +164,7 @@ jobs:
 
       - name: End-to-End HTTP Test
         run: |
-          kubectl port-forward svc/fileserver 8080:8081 &
+          kubectl port-forward svc/fileserver 8080:8080 &
           PF_PID=$!
           sleep 5
 
