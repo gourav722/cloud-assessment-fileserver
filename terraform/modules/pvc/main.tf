@@ -1,4 +1,4 @@
-﻿resource "kubernetes_persistent_volume_claim_v1" "this" {
+resource "kubernetes_persistent_volume_claim_v1" "this" {
 
   metadata {
     name = var.pvc_name

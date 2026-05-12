@@ -1,4 +1,4 @@
-﻿output "login_server" {
+output "login_server" {
   value       = azurerm_container_registry.this.login_server
   description = "ACR login server URL (used to prefix image tags)"
 }

@@ -1,4 +1,4 @@
-﻿variable "pvc_name" {
+variable "pvc_name" {
   type        = string
   description = "Name of the PersistentVolumeClaim"
 }

@@ -1,4 +1,4 @@
-environment = "prod"
+environment  = "prod"
 cluster_name = "fileserver-cluster-prod"
 
 pvc_name = "fileserver-pvc-prod"
