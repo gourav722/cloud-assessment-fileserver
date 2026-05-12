@@ -1,0 +1,26 @@
+﻿# Production overrides
+# Pinned semver image, autoscaling-ready replicas, larger storage
+
+replicaCount: 2
+
+image:
+  pullPolicy: IfNotPresent
+  tag: "1.0.0"
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+service:
+  type: ClusterIP
+  port: 8080
+
+persistence:
+  storageClass: "azurefile-csi"   # RWX — required for 2+ replicas on AKS
+  size: 10Gi
+
+logLevel: info

@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: {{ include "fileserver.fullname" . }}
+
+spec:
+  replicas: {{ .Values.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: fileserver
+
+  template:
+    metadata:
+      labels:
+        app: fileserver
+
+    spec:
+
+      initContainers:
+        - name: seed-files
+
+          image: busybox
+
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /data
+
+              if [ ! -f /data/test.txt ]; then
+                echo "seeded file from initContainer" > /data/test.txt
+              fi
+
+          volumeMounts:
+            - name: data-volume
+              mountPath: /data
+
+      containers:
+        - name: fileserver
+
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          ports:
+            - containerPort: {{ .Values.service.port }}
+
+          env:
+            - name: DATA_DIR
+              value: "/data"
+
+            - name: PORT
+              value: "{{ .Values.service.port }}"
+
+          volumeMounts:
+            - name: data-volume
+              mountPath: /data
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.service.port }}
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.service.port }}
+
+      volumes:
+        - name: data-volume
+
+          persistentVolumeClaim:
+            claimName: {{ .Values.existingPvc }}
