@@ -22,20 +22,61 @@ Returns `200` with file contents on a hit, `404` JSON on a miss.
 
 ## Prerequisites
 
-Install these before running anything.
+### Windows — install everything via winget
 
-| Tool | Version | Install |
+Open PowerShell **as Administrator** and run:
+
+```powershell
+winget install Docker.DockerDesktop
+winget install Kubernetes.kind
+winget install Kubernetes.kubectl
+winget install Helm.Helm
+winget install Hashicorp.Terraform
+winget install GoLang.Go
+winget install GnuWin32.Make
+```
+
+Restart PowerShell after installing, then verify:
+
+```powershell
+docker --version
+kind --version
+kubectl version --client
+helm version
+terraform --version
+go version
+make --version
+```
+
+> **Run make commands in Git Bash** (included with Git for Windows), not PowerShell.  
+> Add make to PATH in Git Bash: `export PATH=$PATH:/c/Program\ Files\ \(x86\)/GnuWin32/bin`  
+> Make it permanent: `echo 'export PATH=$PATH:/c/Program\ Files\ \(x86\)/GnuWin32/bin' >> ~/.bashrc`
+
+> **Docker Desktop** must be running before `make up`. Open it from Start Menu and wait for **"Engine running"** in the bottom left.
+
+### Linux / Mac — install via package manager
+
+```bash
+# Mac (Homebrew)
+brew install kind kubectl helm terraform go make
+brew install --cask docker
+
+# Ubuntu/Debian
+sudo apt-get install docker.io golang make
+# kind, kubectl, helm, terraform — follow official docs below
+```
+
+### Required versions
+
+| Tool | Version | Docs |
 |---|---|---|
 | Docker Desktop | >= 24.0 | https://www.docker.com/products/docker-desktop |
-| kind | >= 0.20 | https://kind.sigs.k8s.io/docs/user/quick-start/#installation |
+| kind | >= 0.20 | https://kind.sigs.k8s.io/docs/user/quick-start |
 | kubectl | >= 1.28 | https://kubernetes.io/docs/tasks/tools |
 | Helm | >= 3.12 | https://helm.sh/docs/intro/install |
 | Terraform | >= 1.5.0 | https://developer.hashicorp.com/terraform/install |
 | Go | >= 1.24 | https://go.dev/dl |
-| make | any | Linux/Mac: built-in — Windows: `winget install GnuWin32.Make` |
-
-> **Windows users:** Run all `make` commands in **Git Bash** (included with Git for Windows).  
-> Add make to PATH in Git Bash: `export PATH=$PATH:/c/Program\ Files\ \(x86\)/GnuWin32/bin`
+| make | any | built-in on Linux/Mac |
 
 ---
 
