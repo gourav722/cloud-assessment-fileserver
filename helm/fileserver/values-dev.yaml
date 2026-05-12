@@ -1,0 +1,26 @@
+﻿# Development overrides
+# Lower resource limits, always pull latest image, single replica
+
+replicaCount: 1
+
+image:
+  pullPolicy: Always
+  tag: "latest"
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "64Mi"
+  limits:
+    cpu: "200m"
+    memory: "128Mi"
+
+service:
+  type: ClusterIP
+  port: 8080
+
+persistence:
+  storageClass: ""       # uses cluster default (standard on kind, managed-csi on AKS)
+  size: 1Gi
+
+logLevel: debug
