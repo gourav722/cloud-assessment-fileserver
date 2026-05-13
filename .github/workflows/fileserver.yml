@@ -1,0 +1,240 @@
+name: CI-CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/fileserver
+
+jobs:
+  # ----------------------------------------------------------------
+  # JOB 1 — Lint and validate everything
+  # Runs on every push. Fast feedback before anything is built.
+  # ----------------------------------------------------------------
+  lint-and-validate:
+    name: Lint and Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Go
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Go Build
+        run: cd app && go build .
+
+      - name: Go Test
+        run: cd app && go test ./... -v
+
+      # Helm
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm Lint (base)
+        run: helm lint helm/fileserver
+
+      - name: Helm Lint (dev values)
+        run: helm lint helm/fileserver -f helm/fileserver/values-dev.yaml
+
+      - name: Helm Lint (prod values)
+        run: helm lint helm/fileserver -f helm/fileserver/values-prod.yaml
+
+      # Terraform — kind root
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init (kind)
+        run: cd terraform && terraform init -backend=false
+
+      - name: Terraform Format Check (kind)
+        run: cd terraform && terraform fmt -check -recursive
+
+      - name: Terraform Validate (kind)
+        run: cd terraform && terraform validate
+
+      # Terraform — Azure stub
+      - name: Terraform Init (azure stub)
+        run: cd terraform/azure && terraform init -backend=false
+
+      - name: Terraform Format Check (azure stub)
+        run: cd terraform/azure && terraform fmt -check -recursive
+
+      - name: Terraform Validate (azure stub)
+        run: cd terraform/azure && terraform validate
+
+  # ----------------------------------------------------------------
+  # JOB 2 — Build and push Docker image to GHCR
+  # Only runs after lint-and-validate passes.
+  # Tags image with commit SHA for full traceability.
+  # ----------------------------------------------------------------
+  build-and-push:
+    name: Build and Push Image
+    runs-on: ubuntu-latest
+    needs: lint-and-validate
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          docker build -t fileserver:${{ github.sha }} ./app
+          docker build -t ${{ env.IMAGE }}:${{ github.sha }} ./app
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to GHCR
+        run: |
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          echo "Pushed: ${{ env.IMAGE }}:${{ github.sha }}"
+
+  # ----------------------------------------------------------------
+  # JOB 3 — Deploy to Dev (kind cluster)
+  # Runs automatically after image is pushed — no manual gate.
+  # This is intentional: dev should always reflect latest main.
+  # ----------------------------------------------------------------
+  deploy-dev:
+    name: Deploy to Dev
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: dev
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Create kind Cluster
+        uses: helm/kind-action@v1
+
+      - name: Load Docker Image into kind
+        run: |
+          docker build -t fileserver:${{ github.sha }} ./app
+          kind load docker-image fileserver:${{ github.sha }} --name chart-testing
+
+      - name: Create PVC
+        run: |
+          kubectl apply -f - <<EOF
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: fileserver-pvc
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+          EOF
+
+      - name: Deploy via Helm (dev)
+        run: |
+          helm upgrade --install fileserver ./helm/fileserver \
+            --set image.repository=fileserver \
+            --set image.tag=${{ github.sha }} \
+            --set image.pullPolicy=Never \
+            --set existingPvc=fileserver-pvc \
+            --values helm/fileserver/values-dev.yaml \
+            --wait \
+            --timeout 90s
+
+      - name: Verify Kubernetes Resources
+        run: |
+          kubectl get pods
+          kubectl get pvc
+          kubectl get svc
+
+      - name: End-to-End HTTP Test
+        run: |
+          kubectl port-forward svc/fileserver 8080:8080 &
+          PF_PID=$!
+          sleep 5
+
+          echo "--- Test 1: File read (expect 200) ---"
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/test.txt)
+          echo "HTTP status: $RESPONSE"
+          if [ "$RESPONSE" != "200" ]; then
+            echo "FAIL: expected 200, got $RESPONSE"
+            kill $PF_PID
+            exit 1
+          fi
+          echo "Body: $(curl -s http://localhost:8080/test.txt)"
+          echo "PASS"
+
+          echo ""
+          echo "--- Test 2: Missing file (expect 404) ---"
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/missing-file.txt)
+          echo "HTTP status: $RESPONSE"
+          if [ "$RESPONSE" != "404" ]; then
+            echo "FAIL: expected 404, got $RESPONSE"
+            kill $PF_PID
+            exit 1
+          fi
+          BODY=$(curl -s http://localhost:8080/missing-file.txt)
+          echo "Body: $BODY"
+          if echo "$BODY" | grep -q "file not found"; then
+            echo "PASS"
+          else
+            echo "FAIL: body missing 'file not found'"
+            kill $PF_PID
+            exit 1
+          fi
+
+          echo ""
+          echo "All tests passed"
+          kill $PF_PID
+
+  # ----------------------------------------------------------------
+  # JOB 4 — Deploy to Prod
+  # Requires manual approval via GitHub Environment protection.
+  # Pipeline pauses here until a reviewer clicks Approve on GitHub.
+  #
+  # WHY MANUAL GATE: prod deployments must have a human in the loop
+  # regardless of how fast or clean CI is. Even with 100% passing
+  # tests, automated rollouts to prod without sign-off are a risk.
+  #
+  # NOTE: Azure credentials (ARM_CLIENT_ID etc.) would be added as
+  # GitHub Environment secrets when a real subscription is available.
+  # This job documents the shape of the prod gate.
+  # ----------------------------------------------------------------
+  deploy-prod:
+    name: Deploy to Prod
+    runs-on: ubuntu-latest
+    needs: deploy-dev
+    environment: prod
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Prod Deploy Gate
+        run: |
+          echo "========================================"
+          echo " Prod deployment approved"
+          echo " Image: ${{ env.IMAGE }}:${{ github.sha }}"
+          echo " Target: AKS (azure/prod.tfvars)"
+          echo "========================================"
+          echo ""
+          echo "To deploy to Azure AKS run:"
+          echo "  az login"
+          echo "  cd terraform/azure"
+          echo "  terraform init"
+          echo "  terraform apply -var-file=prod.tfvars -var=image_tag=${{ github.sha }}"
